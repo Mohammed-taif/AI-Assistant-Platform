@@ -17,10 +17,11 @@ client = Groq(
 app = FastAPI()
 
 # Store conversation history in memory
-chat_history = []
+conversations = {}
 
 # Request model
 class ChatRequest(BaseModel):
+    user_id: str
     message: str
 
 @app.get("/")
@@ -32,15 +33,18 @@ def root():
 @app.post("/chat")
 def chat(request: ChatRequest):
     try:
-        # Save user message
-        chat_history.append(
+        user_id = request.user_id
+
+        if user_id not in conversations:
+            conversations[user_id] = []
+
+        conversations[user_id].append(
             {
                 "role": "user",
                 "content": request.message
             }
         )
 
-        # Send history to AI
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
@@ -55,23 +59,21 @@ def chat(request: ChatRequest):
                     Format longer answers in a readable way.
                     """
                 }
-            ] + chat_history
+            ] + conversations[user_id]
         )
 
         reply = completion.choices[0].message.content
 
-        # Save AI reply
-        chat_history.append(
+        conversations[user_id].append(
             {
                 "role": "assistant",
                 "content": reply
             }
         )
 
-        # Log chat to file
         with open("chat_logs.txt", "a") as f:
             f.write(
-                f"{datetime.now()} | User: {request.message} | AI: {reply}\n\n"
+                f"{datetime.now()} | UserID: {user_id} | User: {request.message} | AI: {reply}\n\n"
             )
 
         return {

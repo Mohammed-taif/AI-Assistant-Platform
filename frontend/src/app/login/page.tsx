@@ -21,6 +21,11 @@ export default function LoginPage() {
           data.access_token
         );
 
+        localStorage.setItem(
+          "username",
+          username
+        );
+
         router.push("/chat");
       } else {
         setError("Invalid credentials");

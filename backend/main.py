@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from httpx import request
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from groq import Groq
@@ -12,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from database import Base, engine, SessionLocal
 from models import ChatMessage, User
-from models import User, ChatMessage
-import os
-import json
 
+import os
+
+# ------------------------
+# DB INIT
+# ------------------------
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -24,6 +25,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 # ------------------------
 # ENV + AI CLIENT
 # ------------------------
@@ -33,8 +35,10 @@ client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
 )
 
+# ------------------------
+# APP
+# ------------------------
 app = FastAPI()
-from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,29 +56,11 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 security = HTTPBearer()
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-fake_users = {
-    "taif": {
-        "username": "taif",
-        "password": "1234"
-    }
-}
-
 # ------------------------
-# MEMORY STORAGE
+# REQUEST MODELS
 # ------------------------
-try:
-    with open("conversations.json", "r") as f:
-        conversations = json.load(f)
-except:
-    conversations = {}
-
-# ------------------------
-# REQUEST MODEL
-# ------------------------
-
 class RegisterRequest(BaseModel):
     username: str
     password: str
@@ -83,7 +69,7 @@ class ChatRequest(BaseModel):
     message: str
 
 # ------------------------
-# JWT FUNCTIONS
+# JWT
 # ------------------------
 def create_token(data: dict):
     to_encode = data.copy()
@@ -98,11 +84,7 @@ def verify_token(token: str):
     except JWTError:
         return None
 
-# ------------------------
-# AUTH DEPENDENCY (FIXED)
-# ------------------------
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-
     token = credentials.credentials
     username = verify_token(token)
 
@@ -114,47 +96,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 # ------------------------
 # ROUTES
 # ------------------------
+
 @app.get("/")
 def root():
     return {"message": "AI Assistant Backend Running"}
 
-# LOGIN
-@app.post("/login")
-def login(
-    username: str,
-    password: str,
-    db: Session = Depends(get_db)
-):
-
-    user = (
-        db.query(User)
-        .filter(User.username == username)
-        .first()
-    )
-
-    if not user:
-        return {"error": "Invalid username"}
-
-    if not pwd_context.verify(password, user.password):
-        return {"error": "Invalid password"}
-
-    token = create_token({"sub": username})
-
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
+# ------------------------
+# REGISTER
+# ------------------------
 @app.post("/register")
-def register(
-    request: RegisterRequest,
-    db: Session = Depends(get_db)
-):
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
-    existing_user = (
-        db.query(User)
-        .filter(User.username == request.username)
-        .first()
-    )
+    existing_user = db.query(User).filter(User.username == request.username).first()
 
     if existing_user:
         return {"error": "Username already exists"}
@@ -169,10 +122,32 @@ def register(
     db.add(user)
     db.commit()
 
+    return {"message": "User registered successfully"}
+
+# ------------------------
+# LOGIN
+# ------------------------
+@app.post("/login")
+def login(username: str, password: str, db: Session = Depends(get_db)):
+
+    user = db.query(User).filter(User.username == username).first()
+
+    if not user:
+        return {"error": "Invalid username"}
+
+    if not pwd_context.verify(password, user.password):
+        return {"error": "Invalid password"}
+
+    token = create_token({"sub": username})
+
     return {
-        "message": "User registered successfully"
+        "access_token": token,
+        "token_type": "bearer"
     }
-# CHAT (PROTECTED - FIXED)
+
+# ------------------------
+# CHAT
+# ------------------------
 @app.post("/chat")
 def chat(
     request: ChatRequest,
@@ -180,90 +155,75 @@ def chat(
     db: Session = Depends(get_db)
 ):
 
-    user_id = user
-
-    if user_id not in conversations:
-        conversations[user_id] = []
-
-    conversations[user_id].append({
-        "role": "user",
-        "content": request.message
-    })
-
-    db.add(
-        ChatMessage(
-            user_id=user_id,
-            role="user",
-            content=request.message
-        )
+    # get chat history from DB
+    history = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.user_id == user)
+        .all()
     )
+
+    messages = [
+        {"role": "system", "content": "You are a helpful AI assistant."}
+    ]
+
+    for msg in history:
+        messages.append({
+            "role": msg.role,
+            "content": msg.content
+        })
+
+    # add new user message
+    messages.append({"role": "user", "content": request.message})
+
+    # save user message
+    db.add(ChatMessage(
+        user_id=user,
+        role="user",
+        content=request.message
+    ))
     db.commit()
 
+    # AI response
     completion = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful AI assistant."
-            }
-        ] + conversations[user_id]
+        messages=messages
     )
 
     reply = completion.choices[0].message.content
 
-    conversations[user_id].append({
-        "role": "assistant",
-        "content": reply
-    })
-
-    db.add(
-        ChatMessage(
-            user_id=user_id,
-            role="assistant",
-            content=reply
-        )
-    )
+    # save assistant message
+    db.add(ChatMessage(
+        user_id=user,
+        role="assistant",
+        content=reply
+    ))
     db.commit()
 
-    with open("conversations.json", "w") as f:
-        json.dump(conversations, f, indent=4)
+    return {"reply": reply}
 
-    return {
-        "reply": reply
-    }
+# ------------------------
 # HISTORY
+# ------------------------
 @app.get("/history/{user_id}")
-def get_history(
-    user_id: str,
-    db: Session = Depends(get_db)
-):
+def get_history(user_id: str, db: Session = Depends(get_db)):
 
-    messages = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.user_id == user_id)
-        .all()
-    )
+    messages = db.query(ChatMessage).filter(ChatMessage.user_id == user_id).all()
 
-    return messages
+    return [
+        {
+            "role": msg.role,
+            "content": msg.content
+        }
+        for msg in messages
+    ]
+
+# ------------------------
 # CLEAR CHAT
+# ------------------------
 @app.delete("/clear-chat/{user_id}")
-def clear_chat(
-    user_id: str,
-    db: Session = Depends(get_db)
-):
+def clear_chat(user_id: str, db: Session = Depends(get_db)):
 
-    db.query(ChatMessage).filter(
-        ChatMessage.user_id == user_id
-    ).delete()
-
+    db.query(ChatMessage).filter(ChatMessage.user_id == user_id).delete()
     db.commit()
 
-    if user_id in conversations:
-        del conversations[user_id]
-
-        with open("conversations.json", "w") as f:
-            json.dump(conversations, f, indent=4)
-
-    return {
-        "message": f"Chat cleared for {user_id}"
-    }
+    return {"message": f"Chat cleared for {user_id}"}

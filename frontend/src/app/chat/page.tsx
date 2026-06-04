@@ -12,7 +12,6 @@ import {
   sendMessage,
   getConversations,
   getConversation,
-  createConversation,
   deleteConversation,
 } from "@/services/api";
 
@@ -105,33 +104,12 @@ export default function ChatPage() {
     }
   };
 
-  // CREATE NEW CHAT
-  const handleNewChat = async () => {
+  // NEW CHAT
+  const handleNewChat = () => {
 
-    const token =
-      localStorage.getItem("token");
+    setConversationId(null);
 
-    if (!token) return;
-
-    try {
-
-      const data =
-        await createConversation(token);
-
-      setConversationId(
-        data.conversation_id
-      );
-
-      setMessages([]);
-
-      loadConversations();
-
-    } catch (error) {
-
-      console.error(
-        "Failed to create conversation"
-      );
-    }
+    setMessages([]);
   };
 
   // DELETE CHAT
@@ -278,7 +256,7 @@ export default function ChatPage() {
                 }
                 className="flex-1 text-left p-4 text-white hover:bg-slate-800"
               >
-                Chat #{chat.id}
+                Chat #{chat.id - 1}
               </button>
 
               <button

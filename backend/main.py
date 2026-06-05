@@ -64,6 +64,10 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -123,18 +127,35 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 # ------------------------
 # LOGIN
 # ------------------------
+# ------------------------
+# LOGIN
+# ------------------------
 @app.post("/login")
-def login(username: str, password: str, db: Session = Depends(get_db)):
+def login(
+    req: LoginRequest,
+    db: Session = Depends(get_db)
+):
 
-    user = db.query(User).filter(User.username == username).first()
+    user = db.query(User).filter(
+        User.username == req.username
+    ).first()
 
     if not user:
-        return {"error": "Invalid username"}
+        return {
+            "error": "Invalid username"
+        }
 
-    if not pwd_context.verify(password, user.password):
-        return {"error": "Invalid password"}
+    if not pwd_context.verify(
+        req.password,
+        user.password
+    ):
+        return {
+            "error": "Invalid password"
+        }
 
-    token = create_token({"sub": username})
+    token = create_token({
+        "sub": req.username
+    })
 
     return {
         "access_token": token,

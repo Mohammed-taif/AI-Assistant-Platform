@@ -1,14 +1,25 @@
 const API_URL = "http://127.0.0.1:8000";
 
 // LOGIN
+// LOGIN
 export async function login(
   username: string,
   password: string
 ) {
+
   const response = await fetch(
-    `${API_URL}/login?username=${username}&password=${password}`,
+    `${API_URL}/login`,
     {
       method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        username,
+        password,
+      }),
     }
   );
 
@@ -26,10 +37,12 @@ export async function sendMessage(
     `${API_URL}/chat`,
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
+
       body: JSON.stringify({
         message,
         conversation_id: conversationId,
@@ -84,6 +97,7 @@ export async function createConversation(
     `${API_URL}/conversation/new`,
     {
       method: "POST",
+
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -103,6 +117,7 @@ export async function deleteConversation(
     `${API_URL}/conversation/${conversationId}`,
     {
       method: "DELETE",
+
       headers: {
         Authorization: `Bearer ${token}`,
       },

@@ -7,7 +7,7 @@ from groq import Groq
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm.session import Session
 
 from database import Base, engine, SessionLocal
 from models import ChatMessage, User, Conversation

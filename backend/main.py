@@ -7,7 +7,7 @@ from groq import Groq
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-from sqlalchemy.orm.session import Session
+from sqlalchemy.orm import Session 
 
 from database import Base, engine, SessionLocal
 from models import ChatMessage, User, Conversation
@@ -254,8 +254,21 @@ def chat(
     ).all()
 
     messages = [
-        {"role": "system", "content": "You are a helpful AI assistant."}
-    ]
+    {
+        "role": "system",
+        "content": """
+You are a professional AI coding assistant.
+
+Rules:
+- Format code using proper markdown code blocks
+- Always use triple backticks
+- Mention language names like python, javascript, tsx, bash
+- Keep responses clean and structured
+- Use bullet points when useful
+- Never return unformatted code
+"""
+    }
+]
 
     for msg in history:
         messages.append({

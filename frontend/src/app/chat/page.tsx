@@ -8,7 +8,16 @@ import {
 
 import ReactMarkdown from "react-markdown";
 
-import { useRouter } from "next/navigation";
+import { Copy } from "lucide-react";
+
+import { Prism as SyntaxHighlighter }
+from "react-syntax-highlighter";
+
+import { oneDark }
+from "react-syntax-highlighter/dist/esm/styles/prism";
+
+import { useRouter }
+from "next/navigation";
 
 import {
   sendMessage,
@@ -21,6 +30,9 @@ export default function ChatPage() {
 
   const router = useRouter();
 
+  const stopRef =
+    useRef(false);
+
   const [messages, setMessages] =
     useState<any[]>([]);
 
@@ -28,6 +40,9 @@ export default function ChatPage() {
     useState("");
 
   const [loading, setLoading] =
+    useState(false);
+
+  const [isStreaming, setIsStreaming] =
     useState(false);
 
   const [conversations, setConversations] =
@@ -48,7 +63,7 @@ export default function ChatPage() {
 
   }, [messages]);
 
-  // AUTH CHECK + LOAD CONVERSATIONS
+  // AUTH CHECK
   useEffect(() => {
 
     const token =
@@ -65,72 +80,70 @@ export default function ChatPage() {
   }, []);
 
   // LOAD CONVERSATIONS
-  const loadConversations = async () => {
+  const loadConversations =
+    async () => {
 
-    const token =
-      localStorage.getItem("token");
+      const token =
+        localStorage.getItem("token");
 
-    if (!token) return;
+      if (!token) return;
 
-    try {
+      try {
 
-      const data =
-        await getConversations(token);
+        const data =
+          await getConversations(token);
 
-      setConversations(
-        Array.isArray(data)
-          ? data
-          : []
-      );
+        setConversations(
+          Array.isArray(data)
+            ? data
+            : []
+        );
 
-    } catch (error) {
+      } catch {
 
-      console.error(
-        "Failed to load conversations"
-      );
-    }
-  };
+        console.log(
+          "Conversation load failed"
+        );
+      }
+    };
 
-  // LOAD SINGLE CHAT
-  const loadConversation = async (
-    id: number
-  ) => {
+  // LOAD CHAT
+  const loadConversation =
+    async (id: number) => {
 
-    const token =
-      localStorage.getItem("token");
+      const token =
+        localStorage.getItem("token");
 
-    if (!token) {
+      if (!token) return;
 
-      router.push("/login");
-      return;
-    }
+      try {
 
-    try {
+        const data =
+          await getConversation(
+            id,
+            token
+          );
 
-      const data =
-        await getConversation(id, token);
+        setConversationId(id);
 
-      setConversationId(id);
+        setMessages(
+          Array.isArray(data)
+            ? data
+            : []
+        );
 
-      setMessages(
-        Array.isArray(data)
-          ? data
-          : data.messages || []
-      );
+      } catch {
 
-    } catch (error) {
-
-      console.error(
-        "Failed to load conversation"
-      );
-    }
-  };
+        console.log(
+          "Chat load failed"
+        );
+      }
+    };
 
   // NEW CHAT
   const handleNewChat = () => {
 
     setConversationId(null);
-
     setMessages([]);
   };
 
@@ -141,11 +154,7 @@ export default function ChatPage() {
       const token =
         localStorage.getItem("token");
 
-      if (!token) {
-
-        router.push("/login");
-        return;
-      }
+      if (!token) return;
 
       try {
 
@@ -162,10 +171,10 @@ export default function ChatPage() {
 
         loadConversations();
 
-      } catch (error) {
+      } catch {
 
-        console.error(
-          "Failed to delete conversation"
+        console.log(
+          "Delete failed"
         );
       }
     };
@@ -174,6 +183,7 @@ export default function ChatPage() {
   const handleLogout = () => {
 
     localStorage.removeItem("token");
+
     localStorage.removeItem("username");
 
     router.push("/login");
@@ -193,6 +203,8 @@ export default function ChatPage() {
       return;
     }
 
+    stopRef.current = false;
+
     const userMessage = {
       role: "user",
       content: input,
@@ -207,6 +219,7 @@ export default function ChatPage() {
 
     setInput("");
 
+    // THINKING
     setLoading(true);
 
     try {
@@ -218,6 +231,11 @@ export default function ChatPage() {
           conversationId || undefined
         );
 
+      const reply =
+        response.reply;
+
+      let currentText = "";
+
       // ADD EMPTY AI MESSAGE
       setMessages((prev) => [
         ...prev,
@@ -227,36 +245,51 @@ export default function ChatPage() {
         },
       ]);
 
-      const reply = response.reply;
-
-      let currentText = "";
-
-      // HIDE THINKING MESSAGE
+      // START STREAM
       setLoading(false);
+      setIsStreaming(true);
 
-      // TYPEWRITER EFFECT
-      for (let i = 0; i < reply.length; i++) {
+      const words =
+        reply.split(" ");
 
-        currentText += reply[i];
+      for (
+        let i = 0;
+        i < words.length;
+        i++
+      ) {
 
-        await new Promise((resolve) =>
-          setTimeout(resolve, 15)
-        );
+        // STOP BUTTON
+        if (stopRef.current)
+          break;
+
+        currentText +=
+          (i === 0 ? "" : " ")
+          + words[i];
 
         setMessages((prev) => {
 
           const updated = [...prev];
 
-          updated[updated.length - 1] = {
+          updated[
+            updated.length - 1
+          ] = {
             role: "assistant",
             content: currentText,
           };
 
           return updated;
         });
+
+        // SMOOTH FLOW
+        await new Promise(
+          (resolve) =>
+            setTimeout(resolve, 35)
+        );
       }
 
-      // STORE NEW CONVERSATION
+      setIsStreaming(false);
+
+      // SAVE NEW CHAT
       if (!conversationId) {
 
         setConversationId(
@@ -266,9 +299,10 @@ export default function ChatPage() {
         loadConversations();
       }
 
-    } catch (error) {
+    } catch {
 
       setLoading(false);
+      setIsStreaming(false);
 
       setMessages((prev) => [
         ...prev,
@@ -282,6 +316,7 @@ export default function ChatPage() {
   };
 
   return (
+
     <main className="flex h-screen bg-slate-900">
 
       {/* SIDEBAR */}
@@ -298,10 +333,11 @@ export default function ChatPage() {
 
         </div>
 
-        {/* CHAT LIST */}
+        {/* CONVERSATIONS */}
         <div className="flex-1 overflow-y-auto">
 
-          {conversations.map((chat: any, index: number) => (
+          {conversations.map(
+            (chat: any, index: number) => (
 
             <div
               key={chat.id}
@@ -339,7 +375,7 @@ export default function ChatPage() {
         {/* HEADER */}
         <div className="p-4 border-b border-slate-800 flex justify-between items-center">
 
-          <h1 className="text-white font-bold text-xl">
+          <h1 className="text-white text-xl font-bold">
             AI Chat Assistant
           </h1>
 
@@ -368,7 +404,62 @@ export default function ChatPage() {
 
               <div className="prose prose-invert max-w-none">
 
-                <ReactMarkdown>
+                <ReactMarkdown
+
+                  components={{
+
+                    code(props) {
+
+                      const {
+                        children,
+                        className,
+                      } = props;
+
+                      const match =
+                        /language-(\w+)/.exec(
+                          className || ""
+                        );
+
+                      const codeString =
+                        String(children)
+                          .replace(/\n$/, "");
+
+                      return match ? (
+
+                        <div className="relative">
+
+                          {/* COPY */}
+                          <button
+                            onClick={() =>
+                              navigator.clipboard.writeText(
+                                codeString
+                              )
+                            }
+                            className="absolute top-2 right-2 bg-slate-700 hover:bg-slate-600 text-white p-2 rounded"
+                          >
+                            <Copy size={16} />
+                          </button>
+
+                          <SyntaxHighlighter
+                            style={oneDark}
+                            language={match[1]}
+                            PreTag="div"
+                          >
+                            {codeString}
+                          </SyntaxHighlighter>
+
+                        </div>
+
+                      ) : (
+
+                        <code className="bg-slate-800 px-1 py-0.5 rounded">
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+
+                >
                   {msg.content}
                 </ReactMarkdown>
 
@@ -378,15 +469,19 @@ export default function ChatPage() {
 
           ))}
 
-          {loading && (
+          {/* THINKING */}
+          {loading && !isStreaming && (
 
-            <div className="bg-slate-700 text-white p-3 rounded-xl w-fit">
+            <div className="bg-slate-700 text-white p-3 rounded-xl w-fit animate-pulse">
+
               AI is thinking...
+
             </div>
 
           )}
 
           <div ref={bottomRef} />
+
         </div>
 
         {/* INPUT */}
@@ -405,15 +500,36 @@ export default function ChatPage() {
             className="flex-1 p-3 rounded-lg bg-slate-700 text-white outline-none"
           />
 
-          <button
-            onClick={send}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg"
-          >
-            Send
-          </button>
+          {isStreaming ? (
+
+            <button
+              onClick={() => {
+
+                stopRef.current = true;
+
+                setLoading(false);
+                setIsStreaming(false);
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-lg"
+            >
+              Stop
+            </button>
+
+          ) : (
+
+            <button
+              onClick={send}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg"
+            >
+              Send
+            </button>
+
+          )}
 
         </div>
+
       </div>
+
     </main>
   );
 }

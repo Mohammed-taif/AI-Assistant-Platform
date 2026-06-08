@@ -232,6 +232,25 @@ POST /chat
 
 ---
 
+# Screenshots
+
+### Login
+![Login](screenshots/login.png)
+
+### Register
+![Register](screenshots/register.png)
+
+### Welcome Page (Dark Mode)
+![Welcome Dark](screenshots/welcome_page_dark.png)
+
+### Welcome Page (Light Mode)
+![Welcome Dark](screenshots/welcome_page_white.png)
+
+### Code Conversation
+![Code Conversation](screenshots/code_conversation.png)
+
+---
+
 # Contributors
 
 ## Mohammed Taif — Backend Developer

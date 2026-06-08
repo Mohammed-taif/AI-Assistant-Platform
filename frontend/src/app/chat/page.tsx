@@ -20,7 +20,7 @@ import {
 } from "@/services/api";
 
 export default function ChatPage() {
-
+  const [username, setUsername] = useState("");
   const router = useRouter();
   const stopRef = useRef(false);
   const conversationIdRef = useRef<number | null>(null);
@@ -45,6 +45,10 @@ export default function ChatPage() {
       router.push("/login");
       return;
     }
+    
+    // ✅ Add this line
+    setUsername(localStorage.getItem("username") || "User");
+    
     loadConversations();
   }, []);
 
@@ -210,7 +214,7 @@ export default function ChatPage() {
               AI Chat Assistant
             </h1>
             <p className={`text-sm ${isDark ? "text-slate-400" : "text-gray-500"}`}>
-              Welcome, {localStorage.getItem("username") || "User"} 👋
+              Welcome, {username} 👋
             </p>
           </div>
 

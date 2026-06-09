@@ -491,8 +491,11 @@ async def transcribe(
 ):
     audio_bytes = await file.read()
 
+    # ✅ Detect correct extension from filename
+    filename = file.filename or "audio.mp4"
+
     transcription = client.audio.transcriptions.create(
-        file=(file.filename, audio_bytes, file.content_type),
+        file=(filename, audio_bytes, file.content_type),
         model="whisper-large-v3-turbo",
         language="en",
         response_format="json"

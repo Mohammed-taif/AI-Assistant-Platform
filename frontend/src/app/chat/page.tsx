@@ -17,14 +17,17 @@ import {
   getConversation,
   deleteConversation,
   savePartial,
+  transcribeAudio,
 } from "@/services/api";
 
 export default function ChatPage() {
-  const [username, setUsername] = useState("");
+
   const router = useRouter();
   const stopRef = useRef(false);
   const conversationIdRef = useRef<number | null>(null);
   const currentTextRef = useRef("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
@@ -32,7 +35,10 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversations, setConversations] = useState<any[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const [isDark, setIsDark] = useState(true); // ✅ theme state
+  const [isDark, setIsDark] = useState(true);
+  const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [username, setUsername] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -45,10 +51,7 @@ export default function ChatPage() {
       router.push("/login");
       return;
     }
-    
-    // ✅ Add this line
     setUsername(localStorage.getItem("username") || "User");
-    
     loadConversations();
   }, []);
 
@@ -104,6 +107,99 @@ export default function ChatPage() {
     router.push("/login");
   };
 
+  const startRecording = async () => {
+
+  // ✅ Check if Web Speech API is available (Chrome/Edge)
+  const SpeechRecognition =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition;
+
+  if (SpeechRecognition) {
+    // ⚡ ON-DEVICE — Chrome/Edge
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.start();
+    setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput((prev) => prev + transcript);
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+
+  } else {
+    // 🌐 SERVER FALLBACK — Safari/Firefox via Groq Whisper
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "";
+
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const mimeUsed = mediaRecorder.mimeType || "audio/mp4";
+        const extension = mimeUsed.includes("webm") ? "webm" : "mp4";
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeUsed });
+        await handleTranscription(audioBlob, extension);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+
+    } catch (err) {
+      alert("Microphone access denied. Please allow microphone access.");
+    }
+  }
+};
+
+const stopRecording = () => {
+  // Only needed for Safari/Groq path
+  if (mediaRecorderRef.current && isListening) {
+    mediaRecorderRef.current.stop();
+    setIsListening(false);
+    setIsTranscribing(true);
+  }
+};
+
+  // ✅ SEND AUDIO TO GROQ WHISPER
+  const handleTranscription = async (audioBlob: Blob, extension: string = "webm") => {
+  const token = localStorage.getItem("token");
+  if (!token) return;
+
+  try {
+    const data = await transcribeAudio(audioBlob, token, extension);
+    if (data.text) {
+      setInput((prev) => prev + data.text);
+    }
+  } catch {
+    console.log("Transcription failed");
+  } finally {
+    setIsTranscribing(false);
+  }
+};
+
   const send = async () => {
     if (!input.trim()) return;
 
@@ -121,7 +217,6 @@ export default function ChatPage() {
 
     try {
       const currentConvId = conversationIdRef.current;
-
       const response = await sendMessage(messageToSend, token, currentConvId || undefined);
 
       if (stopRef.current) {
@@ -219,14 +314,12 @@ export default function ChatPage() {
           </div>
 
           <div className="flex gap-2">
-            {/* THEME TOGGLE */}
             <button
               onClick={() => setIsDark(!isDark)}
               className={`px-4 py-2 rounded-lg text-sm font-medium ${isDark ? "bg-slate-700 hover:bg-slate-600 text-white" : "bg-gray-200 hover:bg-gray-300 text-gray-800"}`}
             >
               {isDark ? "☀️ Light" : "🌙 Dark"}
             </button>
-
             <button
               onClick={handleLogout}
               className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
@@ -247,7 +340,7 @@ export default function ChatPage() {
                 How can I help you today?
               </h2>
               <p className={`text-sm max-w-sm ${isDark ? "text-slate-400" : "text-gray-500"}`}>
-                Start a new conversation by typing a message below.
+                Start a new conversation by typing or speaking a message below.
                 Your previous chats are saved in the sidebar.
               </p>
               <div className="grid grid-cols-2 gap-3 mt-4">
@@ -282,13 +375,13 @@ export default function ChatPage() {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`message-fade p-3 rounded-xl max-w-[80%] w-fit ${
-              msg.role === "user"
-              ? "bg-blue-600 text-white ml-auto"
-              : isDark
-              ? "bg-slate-700 text-white"
-              : "bg-white text-gray-900 border border-gray-200"
-            }`}
+              className={`message-fade p-3 rounded-xl max-w-[80%] ${
+                msg.role === "user"
+                  ? "bg-blue-600 text-white ml-auto"
+                  : isDark
+                  ? "bg-slate-700 text-white"
+                  : "bg-white text-gray-900 border border-gray-200"
+              }`}
             >
               <div className={`prose max-w-none ${isDark ? "prose-invert" : ""}`}>
                 <ReactMarkdown
@@ -339,9 +432,33 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !isStreaming && send()}
-            placeholder="Type a message..."
+            placeholder={
+              isListening
+                ? "🎤 Recording... click mic to stop"
+                : isTranscribing
+                ? "⏳ Transcribing..."
+                : "Type a message or use 🎙️"
+            }
             className={`flex-1 p-3 rounded-lg outline-none ${isDark ? "bg-slate-700 text-white" : "bg-white text-gray-900 border border-gray-300"}`}
           />
+
+          {/* ✅ MIC BUTTON */}
+          <button
+            onClick={isListening ? stopRecording : startRecording}
+            disabled={isTranscribing || isStreaming}
+            title={isListening ? "Stop recording" : "Start voice input"}
+            className={`px-4 py-3 rounded-lg transition ${
+              isListening
+                ? "bg-red-500 animate-pulse text-white"
+                : isTranscribing
+                ? "bg-yellow-500 text-white"
+                : isDark
+                ? "bg-slate-700 hover:bg-slate-600 text-white"
+                : "bg-gray-200 hover:bg-gray-300 text-gray-800"
+            }`}
+          >
+            {isListening ? "⏹️" : isTranscribing ? "⏳" : "🎙️"}
+          </button>
 
           {isStreaming ? (
             <button
@@ -349,7 +466,6 @@ export default function ChatPage() {
                 stopRef.current = true;
                 setLoading(false);
                 setIsStreaming(false);
-
                 const token = localStorage.getItem("token");
                 const convId = conversationIdRef.current;
                 if (token && convId && currentTextRef.current) {
@@ -369,7 +485,6 @@ export default function ChatPage() {
             </button>
           )}
         </div>
-
       </div>
     </main>
   );

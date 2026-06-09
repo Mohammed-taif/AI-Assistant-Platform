@@ -108,85 +108,97 @@ export default function ChatPage() {
   };
 
   const startRecording = async () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
 
-  // ✅ Check if Web Speech API is available (Chrome/Edge)
-  const SpeechRecognition =
-    (window as any).SpeechRecognition ||
-    (window as any).webkitSpeechRecognition;
-
-  if (SpeechRecognition) {
-    // ⚡ ON-DEVICE — Chrome/Edge
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.start();
-    setIsListening(true);
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput((prev) => prev + transcript);
-      setIsListening(false);
-    };
-
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-
-  } else {
-    // 🌐 SERVER FALLBACK — Safari/Firefox via Groq Whisper
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : MediaRecorder.isTypeSupported("audio/mp4")
-        ? "audio/mp4"
-        : "";
-
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const mimeUsed = mediaRecorder.mimeType || "audio/mp4";
-        const extension = mimeUsed.includes("webm") ? "webm" : "mp4";
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeUsed });
-        await handleTranscription(audioBlob, extension);
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      mediaRecorder.start();
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = true;
+      recognition.start();
       setIsListening(true);
+      (window as any)._recognition = recognition;
 
-    } catch (err) {
-      alert("Microphone access denied. Please allow microphone access.");
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput((prev) => prev + transcript);
+        setIsListening(false);
+      };
+
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+
+        const mediaRecorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          const mimeUsed = mediaRecorder.mimeType || "audio/mp4";
+          const extension = mimeUsed.includes("webm") ? "webm" : "mp4";
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeUsed });
+          await handleTranscription(audioBlob, extension);
+          stream.getTracks().forEach((track) => track.stop());
+        };
+
+        mediaRecorder.start(100);
+        setIsListening(true);
+
+      } catch (err) {
+        alert("Microphone access denied. Please allow microphone access.");
+      }
     }
-  }
-};
+  };
 
-const stopRecording = () => {
-  // Only needed for Safari/Groq path
+  const stopRecording = () => {
+  if ((window as any)._recognition) {
+    (window as any)._recognition.stop();
+    (window as any)._recognition = null;
+    setIsListening(false);
+    setIsTranscribing(false); // ✅ Web Speech doesn't need transcribing state
+    return;
+  }
+
   if (mediaRecorderRef.current && isListening) {
     mediaRecorderRef.current.stop();
-    setIsListening(false);
-    setIsTranscribing(true);
   }
+
+  setIsListening(false);
+  setIsTranscribing(true);
 };
 
-  // ✅ SEND AUDIO TO GROQ WHISPER
   const handleTranscription = async (audioBlob: Blob, extension: string = "webm") => {
   const token = localStorage.getItem("token");
-  if (!token) return;
+
+  // ✅ If blob is empty or too small, reset and bail out
+  if (!token || audioBlob.size < 1000) {
+    setIsTranscribing(false);
+    return;
+  }
 
   try {
     const data = await transcribeAudio(audioBlob, token, extension);
@@ -196,7 +208,9 @@ const stopRecording = () => {
   } catch {
     console.log("Transcription failed");
   } finally {
+    // ✅ Always reset — no matter what happens
     setIsTranscribing(false);
+    setIsListening(false);
   }
 };
 
@@ -312,7 +326,6 @@ const stopRecording = () => {
               Welcome, {username} 👋
             </p>
           </div>
-
           <div className="flex gap-2">
             <button
               onClick={() => setIsDark(!isDark)}
@@ -426,65 +439,80 @@ const stopRecording = () => {
         </div>
 
         {/* INPUT */}
-        <div className={`p-4 border-t ${isDark ? "border-slate-800" : "border-gray-200"} flex gap-2`}>
-          <input
-            type="text"
+        <div className={`p-4 border-t ${isDark ? "border-slate-800" : "border-gray-200"} flex gap-2 items-end`}>
+
+          <textarea
+            rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !isStreaming && send()}
+            onChange={(e) => {
+              setInput(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !isStreaming) {
+                e.preventDefault();
+                send();
+              }
+            }}
             placeholder={
               isListening
                 ? "🎤 Recording... click mic to stop"
                 : isTranscribing
                 ? "⏳ Transcribing..."
-                : "Type a message or use 🎙️"
+                : "Type a message or use 🎙️  (Shift+Enter for new line)"
             }
-            className={`flex-1 p-3 rounded-lg outline-none ${isDark ? "bg-slate-700 text-white" : "bg-white text-gray-900 border border-gray-300"}`}
+            className={`flex-1 p-3 rounded-lg outline-none resize-none overflow-y-auto max-h-40 min-h-[48px] ${isDark ? "bg-slate-700 text-white" : "bg-white text-gray-900 border border-gray-300"}`}
           />
 
-          {/* ✅ MIC BUTTON */}
-          <button
-            onClick={isListening ? stopRecording : startRecording}
-            disabled={isTranscribing || isStreaming}
-            title={isListening ? "Stop recording" : "Start voice input"}
-            className={`px-4 py-3 rounded-lg transition ${
-              isListening
-                ? "bg-red-500 animate-pulse text-white"
-                : isTranscribing
-                ? "bg-yellow-500 text-white"
-                : isDark
-                ? "bg-slate-700 hover:bg-slate-600 text-white"
-                : "bg-gray-200 hover:bg-gray-300 text-gray-800"
-            }`}
-          >
-            {isListening ? "⏹️" : isTranscribing ? "⏳" : "🎙️"}
-          </button>
+          {/* BUTTONS — fixed size, never expand */}
+          <div className="flex gap-2 flex-shrink-0">
 
-          {isStreaming ? (
             <button
-              onClick={async () => {
-                stopRef.current = true;
-                setLoading(false);
-                setIsStreaming(false);
-                const token = localStorage.getItem("token");
-                const convId = conversationIdRef.current;
-                if (token && convId && currentTextRef.current) {
-                  await savePartial(convId, currentTextRef.current, token);
-                }
-              }}
-              className="bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-lg"
+              onClick={isListening ? stopRecording : startRecording}
+              disabled={isTranscribing || isStreaming}
+              title={isListening ? "Stop recording" : "Start voice input"}
+              className={`h-[48px] w-[48px] flex items-center justify-center rounded-lg transition flex-shrink-0 ${
+                isListening
+                  ? "bg-red-500 animate-pulse text-white"
+                  : isTranscribing
+                  ? "bg-yellow-500 text-white"
+                  : isDark
+                  ? "bg-slate-700 hover:bg-slate-600 text-white"
+                  : "bg-gray-200 hover:bg-gray-300 text-gray-800"
+              }`}
             >
-              Stop
+              {isListening ? "⏹️" : isTranscribing ? "⏳" : "🎙️"}
             </button>
-          ) : (
-            <button
-              onClick={send}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg"
-            >
-              Send
-            </button>
-          )}
+
+            {isStreaming ? (
+              <button
+                onClick={async () => {
+                  stopRef.current = true;
+                  setLoading(false);
+                  setIsStreaming(false);
+                  const token = localStorage.getItem("token");
+                  const convId = conversationIdRef.current;
+                  if (token && convId && currentTextRef.current) {
+                    await savePartial(convId, currentTextRef.current, token);
+                  }
+                }}
+                className="h-[48px] px-5 bg-red-600 hover:bg-red-700 text-white rounded-lg flex-shrink-0"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={send}
+                className="h-[48px] px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex-shrink-0"
+              >
+                Send
+              </button>
+            )}
+
+          </div>
         </div>
+
       </div>
     </main>
   );

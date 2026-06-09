@@ -46,39 +46,14 @@ export default function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    router.push("/login");
-    return;
-  }
-
-  // ✅ Verify token is still valid with backend
-  const verifyToken = async () => {
-    try {
-      const response = await fetch("http://172.24.0.80:8000/conversations", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.status === 401) {
-        // Token invalid or expired — go to login
-        localStorage.removeItem("token");
-        localStorage.removeItem("username");
-        router.push("/login");
-        return;
-      }
-
-      setUsername(localStorage.getItem("username") || "User");
-      loadConversations();
-
-    } catch {
+    const token = localStorage.getItem("token");
+    if (!token) {
       router.push("/login");
+      return;
     }
-  };
-
-  verifyToken();
-}, []);
+    setUsername(localStorage.getItem("username") || "User");
+    loadConversations();
+  }, []);
 
   const loadConversations = async () => {
     const token = localStorage.getItem("token");
@@ -200,50 +175,51 @@ export default function ChatPage() {
   };
 
   const stopRecording = () => {
-  if ((window as any)._recognition) {
-    (window as any)._recognition.stop();
-    (window as any)._recognition = null;
+    if ((window as any)._recognition) {
+      (window as any)._recognition.stop();
+      (window as any)._recognition = null;
+      setIsListening(false);
+      setIsTranscribing(false);
+      return;
+    }
+
+    if (mediaRecorderRef.current && isListening) {
+      mediaRecorderRef.current.stop();
+    }
+
     setIsListening(false);
-    setIsTranscribing(false); // ✅ Web Speech doesn't need transcribing state
-    return;
-  }
-
-  if (mediaRecorderRef.current && isListening) {
-    mediaRecorderRef.current.stop();
-  }
-
-  setIsListening(false);
-  setIsTranscribing(true);
-};
+    setIsTranscribing(true);
+  };
 
   const handleTranscription = async (audioBlob: Blob, extension: string = "webm") => {
-  const token = localStorage.getItem("token");
+    const token = localStorage.getItem("token");
 
-  // ✅ If blob is empty or too small, reset and bail out
-  if (!token || audioBlob.size < 1000) {
-    setIsTranscribing(false);
-    return;
-  }
-
-  try {
-    const data = await transcribeAudio(audioBlob, token, extension);
-    if (data.text) {
-      setInput((prev) => prev + data.text);
+    if (!token || audioBlob.size < 1000) {
+      setIsTranscribing(false);
+      return;
     }
-  } catch {
-    console.log("Transcription failed");
-  } finally {
-    // ✅ Always reset — no matter what happens
-    setIsTranscribing(false);
-    setIsListening(false);
-  }
-};
+
+    try {
+      const data = await transcribeAudio(audioBlob, token, extension);
+      if (data.text) {
+        setInput((prev) => prev + data.text);
+      }
+    } catch {
+      console.log("Transcription failed");
+    } finally {
+      setIsTranscribing(false);
+      setIsListening(false);
+    }
+  };
 
   const send = async () => {
     if (!input.trim()) return;
 
     const token = localStorage.getItem("token");
-    if (!token) { router.push("/login"); return; }
+    if (!token) {
+      router.push("/login");
+      return;
+    }
 
     stopRef.current = false;
     currentTextRef.current = "";
@@ -490,7 +466,7 @@ export default function ChatPage() {
             className={`flex-1 p-3 rounded-lg outline-none resize-none overflow-y-auto max-h-40 min-h-[48px] ${isDark ? "bg-slate-700 text-white" : "bg-white text-gray-900 border border-gray-300"}`}
           />
 
-          {/* BUTTONS — fixed size, never expand */}
+          {/* BUTTONS */}
           <div className="flex gap-2 flex-shrink-0">
 
             <button

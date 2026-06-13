@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function VerifyPage() {
+// ✅ Separate component that uses useSearchParams
+function VerifyForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const username = searchParams.get("username") || "";
@@ -71,69 +72,79 @@ export default function VerifyPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-900">
-      <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md">
+    <div className="bg-slate-800 p-8 rounded-2xl shadow-xl w-full max-w-md">
 
-        <div className="text-center mb-6">
-          <div className="text-5xl mb-3">📧</div>
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Verify Email
-          </h1>
-          <p className="text-slate-400 text-sm">
-            Enter the 6-digit code sent to your email
-          </p>
-          <p className="text-blue-400 text-sm mt-1 font-medium">
-            Username: {username}
-          </p>
-        </div>
-
-        <input
-          type="text"
-          placeholder="000000"
-          value={code}
-          maxLength={6}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-          onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-          className="w-full p-4 mb-4 rounded-lg bg-slate-700 text-white text-center text-3xl tracking-widest font-bold outline-none"
-        />
-
-        {/* 5 min timer hint */}
-        <p className="text-slate-500 text-xs text-center mb-4">
-          ⏱ Code expires in 5 minutes
+      <div className="text-center mb-6">
+        <div className="text-5xl mb-3">📧</div>
+        <h1 className="text-3xl font-bold text-white mb-2">
+          Verify Email
+        </h1>
+        <p className="text-slate-400 text-sm">
+          Enter the 6-digit code sent to your email
         </p>
-
-        {message && (
-          <p className="text-center mb-4 text-green-400">{message}</p>
-        )}
-
-        {error && (
-          <p className="text-center mb-4 text-red-400">{error}</p>
-        )}
-
-        <button
-          onClick={handleVerify}
-          disabled={loading || code.length !== 6}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 text-white py-3 rounded-lg mb-3 font-medium"
-        >
-          {loading ? "Verifying..." : "Verify Account"}
-        </button>
-
-        <button
-          onClick={handleResend}
-          disabled={resending}
-          className="w-full bg-slate-600 hover:bg-slate-700 text-white py-3 rounded-lg mb-3"
-        >
-          {resending ? "Sending..." : "📨 Resend Code"}
-        </button>
-
-        <button
-          onClick={() => router.push("/register")}
-          className="w-full bg-transparent border border-slate-600 hover:border-slate-400 text-slate-400 py-3 rounded-lg"
-        >
-          Back to Register
-        </button>
-
+        <p className="text-blue-400 text-sm mt-1 font-medium">
+          Username: {username}
+        </p>
       </div>
+
+      <input
+        type="text"
+        placeholder="000000"
+        value={code}
+        maxLength={6}
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+        onKeyDown={(e) => e.key === "Enter" && handleVerify()}
+        className="w-full p-4 mb-4 rounded-lg bg-slate-700 text-white text-center text-3xl tracking-widest font-bold outline-none"
+      />
+
+      <p className="text-slate-500 text-xs text-center mb-4">
+        ⏱ Code expires in 5 minutes
+      </p>
+
+      {message && (
+        <p className="text-center mb-4 text-green-400">{message}</p>
+      )}
+
+      {error && (
+        <p className="text-center mb-4 text-red-400">{error}</p>
+      )}
+
+      <button
+        onClick={handleVerify}
+        disabled={loading || code.length !== 6}
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-500 text-white py-3 rounded-lg mb-3 font-medium"
+      >
+        {loading ? "Verifying..." : "Verify Account"}
+      </button>
+
+      <button
+        onClick={handleResend}
+        disabled={resending}
+        className="w-full bg-slate-600 hover:bg-slate-700 text-white py-3 rounded-lg mb-3"
+      >
+        {resending ? "Sending..." : "📨 Resend Code"}
+      </button>
+
+      <button
+        onClick={() => router.push("/register")}
+        className="w-full bg-transparent border border-slate-600 hover:border-slate-400 text-slate-400 py-3 rounded-lg"
+      >
+        Back to Register
+      </button>
+
+    </div>
+  );
+}
+
+// ✅ Main page wraps form in Suspense
+export default function VerifyPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-900">
+      <Suspense fallback={
+        <div className="text-white text-xl">Loading...</div>
+      }>
+        <VerifyForm />
+      </Suspense>
     </main>
   );
 }

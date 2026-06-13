@@ -63,8 +63,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "https://ai-assistant-platform-phi.vercel.app",
+        "https://ai-assistant-platform-git-main-mohamed-taif-s-projects.vercel.app",
+        "https://ai-assistant-platform-48m2n46gi-mohamed-taif-s-projects.vercel.app",
         "https://ai-assistant-platform-h6uoosqeq-mohamed-taif-s-projects.vercel.app",
-        "*"
     ],
     allow_credentials=True,
     allow_methods=["*"],
